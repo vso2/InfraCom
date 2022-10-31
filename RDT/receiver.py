@@ -40,7 +40,7 @@ while online:
             sndpkt = make_server_packet(localPort, address[1], length,1, 0)
             udt_send(server,sndpkt, address)
             server_state  = 1
-            print('Received packet containing {}'.format(msg), ', sending ACK...')
+            print('Received packet containing {}, buffer: {}'.format(msg, buffer), ', sending ACK...')
         elif corrupt(data) or has_seq1(data):
             sndpkt = make_server_packet(localPort, address[1], length,1, 1)
             udt_send(server,sndpkt, address)
@@ -52,7 +52,7 @@ while online:
             sndpkt = make_server_packet(localPort, address[1], length,1, 1)
             udt_send(server,sndpkt, address)
             server_state  = 0
-            print('Received packet containing {}'.format(msg), ', sending ACK...')
+            print('Received packet containing {}, buffer: {}'.format(msg, buffer), ', sending ACK...')
         elif corrupt(data) or has_seq0(data):
             sndpkt = make_server_packet(localPort, address[1], length,1, 0)
             udt_send(server,sndpkt, address)
