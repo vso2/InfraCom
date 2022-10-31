@@ -1,12 +1,12 @@
 import socket
 from threading import Thread
 from threading import Lock
-from traceback import print_tb
 from rdt.rdt import corrupt, extract, has_seq0, has_seq1, isACK, make_server_packet, rdt_rcv, checksum, udt_send, unroll_server_data, notCorrupt, rdt_send
-from rdt.infrastructure import broadcast,deliver_data
+from rdt.infrastructure import deliver_data
 from queue import Queue
 import sys
 from ast import literal_eval
+from datetime import datetime
 
 
 class Client:
@@ -62,7 +62,7 @@ def server_thread(server, client:Client,data, messages_queue,lock):
             elif corrupt(data) or has_seq1(data):
                 sndpkt = make_server_packet(localPort, address[1], length,1, 1)
                 udt_send(server,sndpkt, address)
-                print('[SERVER_THREAD 1]Something went wrong on transmission of the packet!\n ','Corrupted: {}\nNot Expected Sequence Number: {}\n'.format(corrupt(data), has_seq1(data)))
+                #print('[SERVER_THREAD 1]Something went wrong on transmission of the packet!\n ','Corrupted: {}\nNot Expected Sequence Number: {}\n'.format(corrupt(data), has_seq1(data)))
                 return
         elif server_state == 1:
             if notCorrupt(data) and has_seq1(data):
@@ -77,7 +77,7 @@ def server_thread(server, client:Client,data, messages_queue,lock):
             elif corrupt(data) or has_seq0(data):
                 sndpkt = make_server_packet(localPort, address[1], length,1, 0)
                 udt_send(server,sndpkt, address)
-                print('[SERVER_THREAD 2]Something went wrong on transmission of the packet!\n ','Corrupted: {}\nNot Expected Sequence Number: {}\n'.format(corrupt(data), has_seq0(data)))
+                #print('[SERVER_THREAD 2]Something went wrong on transmission of the packet!\n ','Corrupted: {}\nNot Expected Sequence Number: {}\n'.format(corrupt(data), has_seq0(data)))
                 return
 
 
@@ -88,8 +88,6 @@ def sender(client:Client, delivery_socket:socket, message):
     characterQueue = Queue()
     clientPacketLength = 97
     bufferSize = 100
-
-    print('SENDER THREAD', serverAddressPort)
 
     # states
     # 0 - Wait for call 0 from above
@@ -109,7 +107,6 @@ def sender(client:Client, delivery_socket:socket, message):
     # Create a UDP socket at client side
 
     while True:
-        #print(serverAddressPort)
         if sender_state == 0:
             try:
                 if not characterQueue.empty():
@@ -132,10 +129,8 @@ def sender(client:Client, delivery_socket:socket, message):
         elif sender_state == 1:
             try:
                 data,_ = rdt_rcv(delivery_socket, bufferSize)
-                #print(data)
                 if notCorrupt(data, 'client') and isACK(data, 0):
                     delivery_socket.settimeout(None)
-                    #print('Received ACK 0'.format(last_data))
                     sender_state = 2
                     client.change_delivery_state(sender_state)
                 else:
@@ -151,9 +146,7 @@ def sender(client:Client, delivery_socket:socket, message):
 
         elif sender_state == 2:
             try:
-                #print('sender 3th state')
                 if not characterQueue.empty():
-                    #print('SOME PACKET')
                     data = characterQueue.get()
                     #print('Sending packet and waiting for ACK 1... {}'.format(data))
                     last_data = data
@@ -194,45 +187,55 @@ def sender(client:Client, delivery_socket:socket, message):
             client.change_delivery_state(sender_state)
 
 
-def readCommand(message:str, client:Client, clients:list, bans):
+def readCommand(message:str, client:Client, clients:list, bans, client_addresses,banned_addresses):
     if client.name == '':
         if message.startswith('hi, meu nome eh'):
             name = message[len('hi, meu nome eh '):]
             client.define_client_name(name)
-            #print(name)
             for banned_user in bans:
                 if banned_user.name == name:
-                    return 'user banned', 'broad'
-            return '{} is connected'.format(name), 'broad'
+                    return 'user banned', 'broad', 'COMMAND'
+            return '{} is connected'.format(name), 'broad', 'COMMAND'
         else:
-            return 'no able to connect' , 'inbox'
+            del clients[clients.index(client)]
+            del client_addresses[client_addresses.index(client.address)]
+            return 'no able to connect' , 'inbox', 'COMMAND'
     elif message == 'bye':
         name = client.name
         del clients[clients.index(client)]
-        return '{} leave the room'.format(name), 'broad'
+        return '{} leave the room'.format(name), 'broad', 'COMMAND'
     elif message == 'list':
         val = ''
         for user in clients:
             val = val + ' ' + user.name
-        return val , 'inbox'
+        return val , 'inbox', 'COMMAND'
     
     elif message.startswith('ban'):
         user_name = message[message.index('@')+1:]
         required_to_ban = int(2*len(clients)/3)
         for user in clients:
-            print(user)
             if user_name == user.name:
                 user.increment_ban_count()
                 if user.ban_counter == required_to_ban:
                     bans.append(user)
+                    banned_addresses.append(user.address)
                     del clients[clients.index(user)]
-                    return 'user {} banned'.format(user.name), 'broad'
+                    del client_addresses[client_addresses.index(user.address)]
+                    return 'user {} banned'.format(user.name), 'broad', 'COMMAND'
                 else:
-                    return '{} upvoted to ban {}'.format(client.name, user.name), 'broad'
-        return 'User {} not found'.format(user_name), 'inbox'
-        
+                    return '{} upvoted to ban {}'.format(client.name, user.name), 'broad', 'COMMAND'
+        return 'User {} not found'.format(user_name), 'inbox', 'COMMAND'
+    
+    elif message[0] == '@':
+        user_name = message[message.index('@')+1:message.index(' ')]
+        particular_msg = message[message.index(' ')+1:]
+        for user in clients:
+            if user_name == user.name:
+                return particular_msg, 'inbox', user_name
+        return 'user not found', 'inbox', 'COMMAND'
+
     else:
-        return message, 'broad'
+        return message, 'broad', ''
 
 
 
@@ -280,14 +283,17 @@ while True:
         server_process.join()
         if messageQueue.qsize()!= showed_messages:
             x = messageQueue.get()
-            print(x)
             listener_sock = literal_eval(x[:x.find(')')+1])
             message = x[x.find(')')+1:]
-            print(message)
             if client.listener_sock =='':
                 client.define_listener_sock(listener_sock)
-            new_message, send_type = readCommand(message,client, clients, bans)
+            new_message, send_type, to_user = readCommand(message,client, clients, bans,clients_addresses, banned_addresses)
+
+            now = datetime.now()
+            current_time = now.strftime("%H:%M:%S")
             if send_type == 'broad':
+                if to_user != 'COMMAND':
+                    new_message = current_time + ' ' + client.name + ':' + new_message
                 delivery_thread = Thread(target=sender, args=(client, delivery, new_message))
                 delivery_thread.start()
                 delivery_thread.join()
@@ -299,9 +305,19 @@ while True:
                         delivery_thread.start()
                         delivery_thread.join()
             else:
-                delivery_thread = Thread(target=sender, args=(client, delivery, new_message))
-                delivery_thread.start()
-                delivery_thread.join()
+                if to_user != '' and to_user != 'COMMAND':
+                    for user in clients:
+                        if user.name == to_user:
+                            new_message = '[INBOX] '+ current_time + ' ' + client.name + ':' + new_message
+                            delivery_thread = Thread(target=sender, args=(user, delivery, new_message))
+                            delivery_thread.start()
+                            delivery_thread.join()
+                else:
+                    if to_user != 'COMMAND':
+                        new_message = current_time + ' ' + client.name + ':' + new_message
+                    delivery_thread = Thread(target=sender, args=(client, delivery, new_message))
+                    delivery_thread.start()
+                    delivery_thread.join()
             
 
 

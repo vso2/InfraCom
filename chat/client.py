@@ -168,7 +168,6 @@ def server_thread(server, client:Client):
     while True: 
 
         data, address = rdt_rcv(server,bufferSize)
-        #print('RECEIVED IN THREAD:', data, address)
         if address[1] == 8080:
             continue
 
@@ -178,7 +177,6 @@ def server_thread(server, client:Client):
                 msg = extract(data)
                 buffer = deliver_data_client(buffer,msg)
                 client.update_buffer(buffer)
-                #print(address[1],"  ", client_address[1])
                 sndpkt = make_server_packet(client_address[1], address[1], length,1, 0)
                 udt_send(server,sndpkt, address)
                 server_state = 1
@@ -220,7 +218,6 @@ listener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 listener.bind(('localhost',0))
 
 client = Client(user.getsockname(),listener.getsockname())
-#print('user: ', user.getsockname())
 
 
 input_thread = Thread(target = get_input, args=(user,client,listener.getsockname()))

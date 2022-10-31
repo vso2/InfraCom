@@ -12,11 +12,6 @@ def deliver_data(buffer,msg, queue: Queue, lock):
     return buffer
 
 
-def broadcast(socket, bytes, clients):
-    for address in clients:
-        socket.sendto(bytes, address)
-    return
-
 def deliver_data_client(buffer,msg):
     if chr(msg) == '\0':
         message =''.join(buffer)
